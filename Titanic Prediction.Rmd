@@ -1,0 +1,353 @@
+---
+title: "Titanic Survival Prediction"
+author: "Oghenekeno Eribewe"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+### Titanic Survival Predictions Using R
+
+#### **1. Loading all necessary libraries**
+
+First, all required libraries needed for key tasks are loaded first so nothing is left out. These libraries include dplyr for data manipulation, stringr for string manipulation which might probably be required for manipulation that might be needed depending on how messy the fields with characters or categories are in the data set, tidyr to enable functions that easily help with cleaning up the data set, ggplot for plots and visualizations that would be key in understanding the data and the relationships between fields, hmisc to access some helpful functions that may help easily carry out some tasks, and then the caret library to train predictive models that we intend to build.
+
+```{r include = FALSE}
+library(tidyr) # tidy messy data
+library(caret) # predictive modelling
+library(dplyr) # data manipulation
+library(stringr) # string manipulation
+library(ggplot2) # plots and visualizations
+library(Hmisc) # miscellaneous functions
+```
+
+#### 2. Importing the data sets
+
+The train set and test set are imported, the header is set to true as the data comes with each field having its own header. The strings as factors is set to false as we would be merging the two sets and performing some manipulations if required. It would be converted back to factors after whatever manipulation is carried out.
+
+```{r}
+t_train = read.csv("train.csv", header = T, stringsAsFactors = FALSE)
+t_test = read.csv("test.csv", header = T, stringsAsFactors = FALSE)
+```
+
+#### 3. Basic stats and info on the data sets
+
+A basic and descriptive information to help better understand the data sets is required so we can identify instances with missing or messy information, have an idea of the distribution of the values in the numerical fields, and how to got about handling missing values.
+
+```{r}
+# dimension of the data sets
+dim(t_train)
+dim(t_test)
+
+# summary of the data sets
+summary(t_train)
+summary(t_test)
+```
+
+In the training set, there are 891 observations with 12 variables/fields. The Age field contains 177 instances with missing values. In the test set, there are 418 observations with 11 variables/fields as the Survived field in the training set is what we want to predict in the test set. The Age field in the test set contains 86 instances with missing values, and the Fare field has 1 instance with missing value.
+
+#### 4. Creating a new field in both data sets to differentiate train from test set
+
+We intend to merge the training set and the test set into one data set to perform some cleaning tasks and so we want to be able to differentiate the sets so we can easily separate them when it gets to building the models. So, we create a new field in the two sets called isTrain which is either true or false.
+
+```{r}
+t_train$isTrain = TRUE
+t_test$isTrain = FALSE
+```
+
+#### 5. Creating a survived field in the test set
+
+In the test set, we need to create the Survived field which is in the training set as merging can only be done with data sets containing the same number of variables/fields. And, we fill this field with NA's.
+
+```{r}
+t_test$Survived = NA
+```
+
+#### 6. Merging the two data sets into one
+
+```{r}
+t_full = rbind(t_train, t_test)
+
+# basic view of the combined data set
+#View(t_full)
+head(t_full, 5) # top five instances
+tail(t_full, 5) # bottom five instances
+# basic stats
+summary(t_full)
+```
+
+#### 7. Basic info of the combined data set
+
+```{r}
+head(t_full, 5) # top five instances
+tail(t_full, 5) # bottom five instances
+# basic stats
+summary(t_full)
+```
+
+### Data Cleaning
+
+#### 8. Working on fields with missing values
+
+After combining the data sets, we now have a data set with 1309 observations and 13 variables/fields. We need to clean the data to ensure it's ready for modelling. And so, we look at fields that require the cleaning individually.
+
+**Age**: The Age field contains 263 missing values in total. We visualize the distribution of ages of the passengers on board the titanic (omitting the instances with NA) using a histogram from the ggplot library.
+
+```{r message=FALSE}
+# stats of the age column
+summary(t_full$Age)
+
+# visual of the age column
+ggplot(t_full, aes(x = Age)) + geom_histogram(bins = 30, na.rm = T) + labs(title = "Distribution of the Age Field")
+
+# imputing the median of the Age field
+x = impute(t_full$Age, median)
+summary(x)
+
+# imputing back into the data set
+t_full$Age = x
+```
+
+From the histogram, the distribution of ages of passengers seems a bit right-skewed and so we could consider replacing the NA's with the median of the field.
+
+**Fare**: The fare field contains just 1 instance with a missing value and so we could consider dropping the instance or we could look at the distribution and then impute a value but it wold make no difference.
+
+```{r message=FALSE}
+# dealing with Fares
+ggplot(t_full, aes(x = Fare)) + geom_histogram(bins = 40, na.rm = T) + 
+  labs(title = "Distribution of the Fare Field")
+summary(t_full$Fare)
+
+# imputing the median of the Fare field
+y = impute(t_full$Fare, median)
+summary(y)
+
+# imputing back into the data set
+t_full$Fare = y
+
+
+```
+
+From the histogram, the distribution of the passenger fare is right-skewed with an outlier of 512 and so we could consider replacing the NA's with the median of the field.
+
+**Embarked**: The field takes only 3 categories but has 2 missing values that need replacing. We would replace the values with the mode (most frequently occuring category).
+
+```{r}
+summary(t_full$Embarked)
+# replacing with the mode
+ggplot(t_full, aes(x = Embarked, fill = Embarked)) + geom_bar() + labs(title = "Bar Plot of the Point of Embarkation of Passengers On the Titanic")
+x = t_full$Embarked
+x[t_full$Embarked == ''] = NA
+x = impute(x, mode)
+x = droplevels.factor(x)
+summary(x)
+
+t_full$Embarked = x
+summary(t_full$Embarked)
+```
+
+#### 9. Categorical Casting
+
+We cast all the fields that are actually categories as factors excluding the Survived field which has NA's and so would mess up the category which is supposed to be binary categories and it shouldn't even exist in the test set.
+
+```{r}
+t_full$Sex = as.factor(t_full$Sex)
+t_full$Pclass = as.factor(t_full$Pclass)
+t_full$Cabin = as.factor(t_full$Cabin)
+t_full$Embarked = as.factor(t_full$Embarked)
+```
+
+#### 10. Removing the irrelevant fields
+
+Fields like the Name, and Ticket Number have no predictive value that would be useful in modelling. The Name and Ticket number field contain unique instances.
+
+```{r}
+# dropping the name field
+t_full$Name = NULL
+
+# dropping the ticket number field
+t_full$Ticket = NULL
+```
+
+```{r}
+# summary of the full data set
+summary(t_full)
+```
+
+#### 11. The fields SibSp and Parch
+
+The number of siblings/spouses aboard the titanic ranges from 0 - 8 which seems to be categorical, so it would be ideal to cast the data type of the field as a category (factor). Same with the Parch field, it ranges from 0 - 9 and as such should be cast as categories (factor). Both fields are not required for any numerical calculation.
+
+```{r}
+t_full$SibSp = as.factor(t_full$SibSp)
+t_full$Parch = as.factor(t_full$Parch)
+
+summary(t_full$SibSp)
+summary(t_full$Parch)
+```
+
+#### 12. Splitting the data set back into the train and test set
+
+Next, we split the data set back into the train and test set.
+
+```{r}
+# train set
+t_train1 = t_full[t_full$isTrain == TRUE, ]
+# dropping the created isTrain field
+t_train1$isTrain = NULL
+
+# test set
+t_test1 = t_full[t_full$isTrain == FALSE, ]
+# dropping the created isTrain field
+t_test1$isTrain = NULL
+```
+
+```{r include=FALSE}
+# View(t_train1)
+
+# View(t_test1)
+```
+
+### EDA (Exploratory Data Analysis)
+
+We would be exploring the fields in the train set to draw up questions, and key insights using visualizations to aid the understanding of this data set.
+
+```{r}
+# Bar Plot of the Sex of Passengers On the Titanic
+ggplot(t_train1, aes(x = Sex, fill = Sex)) + geom_bar() + labs(title = "Bar Plot of the Sex of Passengers On the Titanic")
+```
+
+```{r}
+# Bar Plot of the Passenger Classes & Sex of passengers On the Titanic
+ggplot(t_train1, aes(x = Pclass, fill = Sex)) + geom_bar(position = "dodge") + labs(title = "Bar Plot of the Passenger Classes & Sex of passengers On the Titanic")
+```
+
+```{r message=FALSE}
+# Box Plot of the Ages & Sex of passengers On the Titanic
+ggplot(t_train1, aes(x = Sex, y = Age)) + geom_boxplot() + labs(title = "Box Plot of the Ages & Sex of passengers On the Titanic")
+```
+
+We want to explore the effect of some key variables on the outcome (Survived). The Survived variable/field needs to be cast as factor as it is a binary classification ( 0 - False, 1 - True).
+
+```{r}
+t_train1$Survived = as.factor(t_train1$Survived)
+
+summary(t_train1$Survived)
+```
+
+##### Effect of Age on the Survival of passengers on the titanic
+
+```{r message=FALSE}
+# Box Plot of the Ages & Survival of passengers on the Titanic
+ggplot(t_train1, aes(x = Survived, y = Age)) + geom_boxplot() + labs(title = "Box Plot of the Ages & Survival of passengers On the Titanic")
+```
+
+#### Survival of the Siblings/Spouse category
+
+```{r}
+# table showing the survival rate of Siblings/Spouse
+ftable(xtabs(~Survived+SibSp, data = t_train1))
+```
+
+#### Survival of the Parents/Children category
+
+```{r}
+# table showing the survival rate of Parents/Children
+ftable(xtabs(~Survived+Parch, data = t_train1))
+```
+
+The cabin field doesn't seem to be useful and so we remove it.
+
+```{r}
+summary(t_train1$Cabin)
+# dropping the Cabin field
+t_train1$Cabin = NULL
+```
+
+**Survival rate of passengers point of embarkation**
+
+```{r}
+summary(t_train1$Embarked)
+# table showing the survival rate of passengers point of embarkment 
+ftable(xtabs(~Survived+Embarked, data = t_train1))
+```
+
+#### Data Modelling: Classification Models
+
+Creating a train - test split
+
+```{r}
+# setting the seed to ensure reproducibility of results
+set.seed(123)
+trsplit = createDataPartition(t_train1$Survived, p = 0.7, list = F)
+tr = t_train1[trsplit,]
+te = t_train1[-trsplit,]
+# setting up caret evaluation method
+ctrl = trainControl(method = "repeatedcv", number = 5, repeats = 3)
+```
+
+We apply C5.0Tree algorithm to predict the passengers survival using all other fields except the PassengerId which is of no benefit but will be needed to identify each passenger using caret evaluation method to carry out 3 repeats of 5-fold cross-validation.
+
+```{r}
+set.seed(123)
+# Fit a model using all the variables
+modelA = train(Survived ~ Pclass+Sex+Age+SibSp+Parch+Fare+Embarked, data = tr, 
+ method = "C5.0Tree", trControl = ctrl)
+
+# summary of results
+summary(modelA)
+modelA$results
+
+```
+
+```{r}
+pred = predict(modelA, te)
+confusionMatrix(pred, te$Survived)
+```
+
+The C5.0Tree predicted 78.2% accurately. We would apply random forest algorithm to see if it gives us a better result still using the evaluation method set up already and then use the more accurate one to predict on the actual test set.
+
+```{r}
+set.seed(123)
+# Fit a model using all the variables
+modelB = train(Survived ~ Pclass+Sex+Age+SibSp+Parch+Fare+Embarked, method = "rf", metric = "Accuracy", data = tr, trControl = ctrl)
+
+# summary of results
+modelB$results
+```
+
+```{r}
+pred1 = predict(modelB, te)
+confusionMatrix(pred1, te$Survived)
+```
+
+We have a higher accuracy using the random forest and then the error is a bit minimal as compared to C5.0Tree.
+
+```{r}
+confint = resamples(list(C5.Tree = modelA, rf = modelB))
+dotplot(confint, conf.level = 0.95, scales = "free")
+```
+
+From the visual above, random forest performs better and we will use it to predict the survival of the passengers in the test set.
+
+#### Predicting the Survival of Passengers in the Test set
+
+```{r}
+# predicting the survival
+Survived = predict(modelB, t_test1)
+```
+
+```{r}
+# based on the format of kaggle submission, we need only 2 columns
+PassengerId = t_test1$PassengerId
+output.df = as.data.frame(PassengerId)
+output.df$Survived = Survived
+#View(output.df)
+```
+
+#### Storing the solution into a CSV file
+
+```{r}
+write.csv(output.df, file = "Kaggle_Submission.csv", row.names = FALSE)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
